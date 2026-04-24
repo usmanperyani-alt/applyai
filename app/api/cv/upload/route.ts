@@ -261,32 +261,68 @@ function extractBasicProfile(text: string) {
   if (currentExp) experience.push(currentExp);
 
   // --- Education ---
-  const education: { degree: string; school: string; year: string }[] = [];
-  const degreePattern = /\b(bachelor|master|b\.?s\.?|m\.?s\.?|b\.?a\.?|m\.?a\.?|m\.?b\.?a\.?|ph\.?d|doctorate|diploma|certificate|associate)/i;
+  // Tight degree regex with closing word boundaries — does NOT match "Manager" or "Marketing".
+  // Multi-letter abbreviations require an explicit closing word boundary on the alternation group.
+  const degreePattern = /\b(bachelor(?:'s|s)?(?:\s+of\s+\w+)?|master(?:'s|s)?(?:\s+of\s+\w+)?|doctorate|associate(?:'s|s)?|diploma|ph\.?d\.?|m\.?b\.?a\.?|b\.?sc\.?|m\.?sc\.?|b\.?eng\.?|m\.?eng\.?|b\.?a\.?(?=\W|$)|m\.?a\.?(?=\W|$)|b\.?s\.?(?=\W|$)|m\.?s\.?(?=\W|$))\b/i;
 
-  let inEducationSection = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (eduSectionRegex.test(line)) { inEducationSection = true; continue; }
-    if (inEducationSection && (expSectionRegex.test(line) || skillSectionRegex.test(line))) {
-      inEducationSection = false;
-      continue;
+  // Reject lines that contain typical job-title noise even if a degree pattern matches by accident
+  const jobTitleNoise = /\b(manager|engineer|designer|developer|specialist|analyst|director|consultant|founder|coordinator|architect|administrator|lead|head\s+of)\b/i;
+
+  // Section-based extraction: find the EDUCATION header, then capture lines until
+  // the next section header. No greedy "anything with a year is education" behavior.
+  const education: { degree: string; school: string; year: string }[] = [];
+  const eduStart = lines.findIndex((l) => /^(education|academic|qualifications?)\b/i.test(l.trim()));
+
+  if (eduStart >= 0) {
+    // Find where the education section ends — at the next major section header
+    let eduEnd = lines.length;
+    for (let i = eduStart + 1; i < lines.length; i++) {
+      const l = lines[i].trim();
+      if (
+        expSectionRegex.test(l) ||
+        skillSectionRegex.test(l) ||
+        /^(awards?|certifications?|projects?|publications?|interests?|references?|languages?)\b/i.test(l)
+      ) {
+        eduEnd = i;
+        break;
+      }
     }
 
-    if (inEducationSection || degreePattern.test(line)) {
-      const yearMatch = line.match(/\b(19|20)\d{2}\b/);
-      if (degreePattern.test(line) || yearMatch) {
-        const degree = line.replace(/\b(19|20)\d{2}\b/, "").trim();
-        // Check next line for school name if not obvious
-        const school = (i + 1 < lines.length && !degreePattern.test(lines[i + 1]) && lines[i + 1].length < 80)
-          ? lines[i + 1] : "";
+    // Within the education slice, pull lines that look like real education entries
+    for (let i = eduStart + 1; i < eduEnd; i++) {
+      const line = lines[i];
+      // Must contain a degree keyword. Reject if it also looks like a job title.
+      if (!degreePattern.test(line) || jobTitleNoise.test(line)) continue;
 
-        education.push({
-          degree: degree || line,
-          school: school,
-          year: yearMatch?.[0] || "",
-        });
+      const yearMatch = line.match(/\b(19|20)\d{2}\b/);
+      // Many CVs put "MBA – School (Year)" on one line, OR split degree/school across two lines.
+      // Try to parse single-line first (split on common separators).
+      let degree = line;
+      let school = "";
+
+      const splitMatch = line.split(/\s*[|–—-]\s+|\s+at\s+|\s*,\s+/).filter(Boolean);
+      if (splitMatch.length >= 2) {
+        degree = splitMatch[0].trim();
+        school = splitMatch[1].replace(/\(.*?\)/g, "").trim();
+      } else if (i + 1 < eduEnd) {
+        const next = lines[i + 1];
+        // Only treat next line as school if it doesn't itself look like another degree
+        if (!degreePattern.test(next) && next.length < 100 && !jobTitleNoise.test(next)) {
+          school = next.replace(/\b(19|20)\d{2}\b/g, "").replace(/\(.*?\)/g, "").trim();
+        }
       }
+
+      degree = degree.replace(/\b(19|20)\d{2}\b/g, "").replace(/[(),|]/g, " ").replace(/\s+/g, " ").trim();
+      school = school.replace(/[(),|]/g, " ").replace(/\s+/g, " ").trim();
+
+      // Last sanity check — if degree text is implausibly long or short, skip
+      if (degree.length < 2 || degree.length > 150) continue;
+
+      education.push({
+        degree,
+        school,
+        year: yearMatch?.[0] || "",
+      });
     }
   }
 

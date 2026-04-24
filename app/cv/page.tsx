@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import TopBar from "@/components/layout/TopBar";
 import type { CVContent, Experience, Education } from "@/types";
 
@@ -40,12 +40,67 @@ export default function CVPage() {
   const [extractedText, setExtractedText] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   };
+
+  // Hydrate from localStorage on mount — restores CV across navigation
+  useEffect(() => {
+    try {
+      const cvRaw = localStorage.getItem("masterCV");
+      if (cvRaw) {
+        const saved = JSON.parse(cvRaw);
+        setCv({
+          summary: saved.summary || "",
+          experience: saved.experience || [],
+          education: saved.education || [],
+          skills: saved.skills || [],
+          certifications: saved.certifications || [],
+        });
+      }
+      const profileRaw = localStorage.getItem("userProfile");
+      if (profileRaw) {
+        const p = JSON.parse(profileRaw);
+        setProfileName(p.name || "");
+        setProfileHeadline(p.headline || "");
+        setProfileLocation(p.location || "");
+      }
+      const textRaw = localStorage.getItem("cvExtractedText");
+      if (textRaw) setExtractedText(textRaw);
+    } catch {
+      // corrupted storage — ignore
+    }
+    setHydrated(true);
+  }, []);
+
+  // Autosave CV edits back to localStorage
+  useEffect(() => {
+    if (!hydrated) return; // don't write empty CV before hydration completes
+    if (cv.summary || cv.experience.length > 0 || cv.skills.length > 0) {
+      localStorage.setItem("masterCV", JSON.stringify(cv));
+    }
+  }, [cv, hydrated]);
+
+  // Autosave profile header (name/headline/location) edits
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!profileName && !profileHeadline && !profileLocation) return;
+    try {
+      const existing = localStorage.getItem("userProfile");
+      const profile = existing ? JSON.parse(existing) : {};
+      profile.name = profileName;
+      profile.headline = profileHeadline;
+      profile.location = profileLocation;
+      localStorage.setItem("userProfile", JSON.stringify(profile));
+      window.dispatchEvent(new Event("profileUpdated"));
+    } catch {
+      // ignore
+    }
+  }, [profileName, profileHeadline, profileLocation, hydrated]);
 
   const handleUpload = useCallback(async (file: File) => {
     if (file.type !== "application/pdf") {
@@ -72,6 +127,7 @@ export default function CVPage() {
       const profile: ExtractedProfile = data.profile;
       setExtractedText(data.extractedText);
       setAiAnalyzed(data.aiAnalyzed);
+      try { localStorage.setItem("cvExtractedText", data.extractedText || ""); } catch { /* ignore */ }
 
       // Populate CV from extracted profile
       setProfileName(profile.name || "");
@@ -311,6 +367,18 @@ export default function CVPage() {
             </div>
           )}
         </div>
+
+        {/* Warn the user when basic extraction was used — it gets education/experience wrong on complex CVs */}
+        {hasCV && uploadStatus === "success" && !aiAnalyzed && (
+          <div className="mb-4 px-4 py-3 bg-amber-badge-bg border border-amber-bar rounded-xl text-[12px] text-amber-badge-text">
+            <div className="font-medium mb-0.5">Basic extraction was used (no Anthropic API key set)</div>
+            <div className="text-[11px] opacity-90">
+              The regex parser may misclassify sections on unusual CV layouts. For accurate extraction,
+              add <code className="font-mono bg-white/40 px-1 rounded">ANTHROPIC_API_KEY</code> to <code className="font-mono bg-white/40 px-1 rounded">.env.local</code> and re-upload.
+              You can also fix any wrong fields below by clicking Edit on each section.
+            </div>
+          </div>
+        )}
 
         {/* CV content — shown after upload */}
         {hasCV && (

@@ -208,6 +208,38 @@ export default function CVPage() {
     setCv({ ...cv, experience: updated });
   };
 
+  const addExperience = () => {
+    setCv({
+      ...cv,
+      experience: [
+        ...cv.experience,
+        { title: "", company: "", location: "", start_date: "", end_date: null, bullets: [""] },
+      ],
+    });
+  };
+
+  const removeExperience = (index: number) => {
+    if (!confirm("Remove this experience entry?")) return;
+    setCv({ ...cv, experience: cv.experience.filter((_, i) => i !== index) });
+  };
+
+  const moveExperience = (index: number, direction: "up" | "down") => {
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (target < 0 || target >= cv.experience.length) return;
+    const updated = [...cv.experience];
+    [updated[index], updated[target]] = [updated[target], updated[index]];
+    setCv({ ...cv, experience: updated });
+  };
+
+  const addEducation = () => {
+    setCv({ ...cv, education: [...cv.education, { degree: "", school: "", year: "" }] });
+  };
+
+  const removeEducation = (index: number) => {
+    if (!confirm("Remove this education entry?")) return;
+    setCv({ ...cv, education: cv.education.filter((_, i) => i !== index) });
+  };
+
   const updateBullet = (expIndex: number, bulletIndex: number, value: string) => {
     const updated = [...cv.experience];
     const bullets = [...updated[expIndex].bullets];
@@ -446,48 +478,156 @@ export default function CVPage() {
                 editing={editingSection === "experience"}
                 onToggle={() => setEditingSection(editingSection === "experience" ? null : "experience")}
               >
-                {cv.experience.length === 0 && (
+                {cv.experience.length === 0 && editingSection !== "experience" && (
                   <p className="text-[12px] text-text-secondary">No experience extracted. Click Edit to add.</p>
                 )}
-                {cv.experience.map((exp, i) => (
-                  <div key={i} className={i > 0 ? "mt-4 pt-4 border-t border-card-border" : ""}>
-                    {editingSection === "experience" ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <input value={exp.title} onChange={(e) => updateExperience(i, "title", e.target.value)} placeholder="Job title" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                          <input value={exp.company} onChange={(e) => updateExperience(i, "company", e.target.value)} placeholder="Company" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
+
+                {/* EDIT MODE — proper form layout */}
+                {editingSection === "experience" && (
+                  <div className="space-y-4">
+                    {cv.experience.map((exp, i) => (
+                      <div
+                        key={i}
+                        className="rounded-xl border border-card-border bg-page-bg/40 p-4 space-y-3"
+                      >
+                        {/* Card header: numbered, with reorder + delete */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-brand-50 text-brand-700 text-[11px] font-medium flex items-center justify-center">
+                              {i + 1}
+                            </span>
+                            <span className="text-[12px] font-medium text-text-dim">
+                              {exp.title || exp.company || "New position"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => moveExperience(i, "up")}
+                              disabled={i === 0}
+                              title="Move up"
+                              className="w-7 h-7 rounded-md text-text-secondary hover:bg-card-bg hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                            >↑</button>
+                            <button
+                              onClick={() => moveExperience(i, "down")}
+                              disabled={i === cv.experience.length - 1}
+                              title="Move down"
+                              className="w-7 h-7 rounded-md text-text-secondary hover:bg-card-bg hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                            >↓</button>
+                            <button
+                              onClick={() => removeExperience(i)}
+                              title="Remove this entry"
+                              className="w-7 h-7 rounded-md text-text-secondary hover:bg-red-50 hover:text-red-600 cursor-pointer text-[14px]"
+                            >&times;</button>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <input value={exp.location} onChange={(e) => updateExperience(i, "location", e.target.value)} placeholder="Location" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                          <input value={exp.start_date} onChange={(e) => updateExperience(i, "start_date", e.target.value)} placeholder="Start" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                          <input value={exp.end_date || ""} onChange={(e) => updateExperience(i, "end_date", e.target.value || null)} placeholder="End (blank=Present)" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
+
+                        {/* Row 1: Title + Company */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <FieldGroup label="Job title">
+                            <input
+                              value={exp.title}
+                              onChange={(e) => updateExperience(i, "title", e.target.value)}
+                              placeholder="Senior Product Designer"
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                          <FieldGroup label="Company">
+                            <input
+                              value={exp.company}
+                              onChange={(e) => updateExperience(i, "company", e.target.value)}
+                              placeholder="Stripe"
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
                         </div>
-                        <div className="space-y-1.5">
-                          {exp.bullets.map((bullet, j) => (
-                            <div key={j} className="flex gap-1.5">
-                              <input value={bullet} onChange={(e) => updateBullet(i, j, e.target.value)} placeholder="Bullet point" className="flex-1 px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                              <button onClick={() => removeBullet(i, j)} className="px-2 text-text-secondary hover:text-red-500 cursor-pointer">&times;</button>
-                            </div>
-                          ))}
-                          <button onClick={() => addBullet(i)} className="text-[11px] text-brand-700 hover:text-brand-500 cursor-pointer">+ Add bullet</button>
+
+                        {/* Row 2: Location + Dates */}
+                        <div className="grid grid-cols-[2fr_1fr_1fr] gap-3">
+                          <FieldGroup label="Location">
+                            <input
+                              value={exp.location}
+                              onChange={(e) => updateExperience(i, "location", e.target.value)}
+                              placeholder="Remote"
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                          <FieldGroup label="Start">
+                            <input
+                              type="month"
+                              value={exp.start_date}
+                              onChange={(e) => updateExperience(i, "start_date", e.target.value)}
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                          <FieldGroup label="End" hint="leave blank for Present">
+                            <input
+                              type="month"
+                              value={exp.end_date || ""}
+                              onChange={(e) => updateExperience(i, "end_date", e.target.value || null)}
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                        </div>
+
+                        {/* Bullets */}
+                        <div>
+                          <div className="text-[11px] font-medium text-text-dim mb-1.5">
+                            Achievements ({exp.bullets.filter(b => b).length})
+                          </div>
+                          <div className="space-y-1.5">
+                            {exp.bullets.map((bullet, j) => (
+                              <div key={j} className="group flex gap-2 items-start">
+                                <span className="text-text-secondary mt-2 select-none">•</span>
+                                <textarea
+                                  value={bullet}
+                                  onChange={(e) => updateBullet(i, j, e.target.value)}
+                                  placeholder="Quantified achievement (e.g. Increased conversion 25% via redesigned onboarding)"
+                                  rows={Math.max(1, Math.ceil(bullet.length / 90))}
+                                  className="flex-1 px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg resize-none focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                                />
+                                <button
+                                  onClick={() => removeBullet(i, j)}
+                                  title="Remove this bullet"
+                                  className="w-7 h-7 rounded-md text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-opacity text-[14px]"
+                                >&times;</button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addBullet(i)}
+                              className="text-[11px] text-brand-700 hover:text-brand-500 cursor-pointer pl-4"
+                            >
+                              + Add bullet point
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    ) : (
-                      <>
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="text-[13px] font-medium">{exp.title}</div>
-                            <div className="text-[12px] text-text-secondary">{exp.company} · {exp.location}</div>
-                          </div>
-                          <span className="text-[11px] text-text-secondary">{exp.start_date} – {exp.end_date || "Present"}</span>
-                        </div>
-                        <ul className="mt-2 space-y-1">
-                          {exp.bullets.filter(b => b).map((bullet, j) => (
-                            <li key={j} className="text-[12px] text-text-dim pl-3 relative before:content-['•'] before:absolute before:left-0 before:text-text-secondary">{bullet}</li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
+                    ))}
+
+                    {/* Add new experience */}
+                    <button
+                      onClick={addExperience}
+                      className="w-full py-2.5 rounded-xl text-[12px] font-medium border border-dashed border-card-border text-text-dim hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 transition-colors cursor-pointer"
+                    >
+                      + Add experience
+                    </button>
+                  </div>
+                )}
+
+                {/* READ MODE */}
+                {editingSection !== "experience" && cv.experience.map((exp, i) => (
+                  <div key={i} className={i > 0 ? "mt-4 pt-4 border-t border-card-border" : ""}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="text-[13px] font-medium">{exp.title}</div>
+                        <div className="text-[12px] text-text-secondary">{exp.company} · {exp.location}</div>
+                      </div>
+                      <span className="text-[11px] text-text-secondary">{exp.start_date} – {exp.end_date || "Present"}</span>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      {exp.bullets.filter(b => b).map((bullet, j) => (
+                        <li key={j} className="text-[12px] text-text-dim pl-3 relative before:content-['•'] before:absolute before:left-0 before:text-text-secondary">{bullet}</li>
+                      ))}
+                    </ul>
                   </div>
                 ))}
               </Section>
@@ -498,26 +638,77 @@ export default function CVPage() {
                 editing={editingSection === "education"}
                 onToggle={() => setEditingSection(editingSection === "education" ? null : "education")}
               >
-                {cv.education.length === 0 && (
+                {cv.education.length === 0 && editingSection !== "education" && (
                   <p className="text-[12px] text-text-secondary">No education extracted. Click Edit to add.</p>
                 )}
-                {cv.education.map((edu, i) => (
-                  <div key={i}>
-                    {editingSection === "education" ? (
-                      <div className="grid grid-cols-3 gap-2">
-                        <input value={edu.degree} onChange={(e) => updateEducation(i, "degree", e.target.value)} placeholder="Degree" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                        <input value={edu.school} onChange={(e) => updateEducation(i, "school", e.target.value)} placeholder="School" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                        <input value={edu.year} onChange={(e) => updateEducation(i, "year", e.target.value)} placeholder="Year" className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                      </div>
-                    ) : (
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="text-[13px] font-medium">{edu.degree}</div>
-                          <div className="text-[12px] text-text-secondary">{edu.school}</div>
+
+                {/* EDIT MODE */}
+                {editingSection === "education" && (
+                  <div className="space-y-3">
+                    {cv.education.map((edu, i) => (
+                      <div key={i} className="rounded-xl border border-card-border bg-page-bg/40 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-brand-50 text-brand-700 text-[11px] font-medium flex items-center justify-center">
+                              {i + 1}
+                            </span>
+                            <span className="text-[12px] font-medium text-text-dim">
+                              {edu.degree || edu.school || "New entry"}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => removeEducation(i)}
+                            title="Remove this entry"
+                            className="w-7 h-7 rounded-md text-text-secondary hover:bg-red-50 hover:text-red-600 cursor-pointer text-[14px]"
+                          >&times;</button>
                         </div>
-                        <span className="text-[11px] text-text-secondary">{edu.year}</span>
+                        <div className="grid grid-cols-[2fr_2fr_1fr] gap-3">
+                          <FieldGroup label="Degree">
+                            <input
+                              value={edu.degree}
+                              onChange={(e) => updateEducation(i, "degree", e.target.value)}
+                              placeholder="MBA"
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                          <FieldGroup label="School">
+                            <input
+                              value={edu.school}
+                              onChange={(e) => updateEducation(i, "school", e.target.value)}
+                              placeholder="Institute of Business Administration"
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                          <FieldGroup label="Year">
+                            <input
+                              value={edu.year}
+                              onChange={(e) => updateEducation(i, "year", e.target.value)}
+                              placeholder="2020"
+                              className="w-full px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                            />
+                          </FieldGroup>
+                        </div>
                       </div>
-                    )}
+                    ))}
+                    <button
+                      onClick={addEducation}
+                      className="w-full py-2.5 rounded-xl text-[12px] font-medium border border-dashed border-card-border text-text-dim hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 transition-colors cursor-pointer"
+                    >
+                      + Add education
+                    </button>
+                  </div>
+                )}
+
+                {/* READ MODE */}
+                {editingSection !== "education" && cv.education.map((edu, i) => (
+                  <div key={i} className={i > 0 ? "mt-2.5 pt-2.5 border-t border-card-border" : ""}>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="text-[13px] font-medium">{edu.degree}</div>
+                        <div className="text-[12px] text-text-secondary">{edu.school}</div>
+                      </div>
+                      <span className="text-[11px] text-text-secondary">{edu.year}</span>
+                    </div>
                   </div>
                 ))}
               </Section>
@@ -528,21 +719,53 @@ export default function CVPage() {
                 editing={editingSection === "skills"}
                 onToggle={() => setEditingSection(editingSection === "skills" ? null : "skills")}
               >
+                {cv.skills.length === 0 && editingSection !== "skills" && (
+                  <p className="text-[12px] text-text-secondary">No skills extracted. Click Edit to add.</p>
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   {cv.skills.map((skill) => (
-                    <span key={skill} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] border border-card-border text-text-dim bg-page-bg">
+                    <span
+                      key={skill}
+                      className={`group flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] border transition-colors ${
+                        editingSection === "skills"
+                          ? "border-brand-300 bg-brand-50 text-brand-700 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                          : "border-card-border text-text-dim bg-page-bg"
+                      }`}
+                    >
                       {skill}
                       {editingSection === "skills" && (
-                        <button onClick={() => removeSkill(skill)} className="text-text-secondary hover:text-red-500 cursor-pointer">&times;</button>
+                        <button
+                          onClick={() => removeSkill(skill)}
+                          className="cursor-pointer opacity-60 hover:opacity-100"
+                          title="Remove"
+                        >&times;</button>
                       )}
                     </span>
                   ))}
                 </div>
                 {editingSection === "skills" && (
-                  <div className="flex gap-2 mt-2">
-                    <input type="text" value={newSkill} onChange={(e) => setNewSkill(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSkill()} placeholder="Add a skill..." className="flex-1 px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300" />
-                    <button onClick={addSkill} className="px-3 py-1.5 text-[12px] rounded-lg border border-card-border bg-card-bg hover:bg-page-bg transition-colors cursor-pointer">Add</button>
-                  </div>
+                  <>
+                    <div className="flex gap-2 mt-3">
+                      <input
+                        type="text"
+                        value={newSkill}
+                        onChange={(e) => setNewSkill(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && addSkill()}
+                        placeholder="Type a skill and press Enter (e.g. Figma, React, Google Ads)"
+                        className="flex-1 px-3 py-2 text-[13px] rounded-lg border border-card-border bg-card-bg focus:outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-300"
+                      />
+                      <button
+                        onClick={addSkill}
+                        disabled={!newSkill.trim()}
+                        className="px-4 py-2 text-[13px] rounded-lg border border-brand-500 bg-brand-500 text-white hover:bg-brand-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-text-secondary mt-2">
+                      Click a skill chip to remove it. Press Enter in the input to add.
+                    </p>
+                  </>
                 )}
               </Section>
 
@@ -625,14 +848,33 @@ export default function CVPage() {
 
 function Section({ title, editing, onToggle, children }: { title: string; editing: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
-    <div className="bg-card-bg border border-card-border rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-card-border flex items-center justify-between">
+    <div className={`bg-card-bg border rounded-xl overflow-hidden transition-colors ${editing ? "border-brand-300" : "border-card-border"}`}>
+      <div className={`px-4 py-3 border-b flex items-center justify-between ${editing ? "border-brand-300 bg-brand-50/40" : "border-card-border"}`}>
         <span className="text-[13px] font-medium">{title}</span>
-        <button onClick={onToggle} className="text-[11px] px-2.5 py-1 rounded-lg border border-card-border bg-card-bg hover:bg-page-bg transition-colors cursor-pointer">
+        <button
+          onClick={onToggle}
+          className={`text-[11px] px-3 py-1 rounded-lg border transition-colors cursor-pointer font-medium ${
+            editing
+              ? "border-brand-500 bg-brand-500 text-white hover:bg-brand-700"
+              : "border-card-border bg-card-bg hover:bg-page-bg"
+          }`}
+        >
           {editing ? "Done" : "Edit"}
         </button>
       </div>
       <div className="p-4">{children}</div>
     </div>
+  );
+}
+
+function FieldGroup({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[11px] font-medium text-text-dim uppercase tracking-wide">{label}</span>
+        {hint && <span className="text-[10px] text-text-secondary">{hint}</span>}
+      </div>
+      {children}
+    </label>
   );
 }

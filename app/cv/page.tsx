@@ -371,11 +371,11 @@ export default function CVPage() {
         {/* Warn the user when basic extraction was used — it gets education/experience wrong on complex CVs */}
         {hasCV && uploadStatus === "success" && !aiAnalyzed && (
           <div className="mb-4 px-4 py-3 bg-amber-badge-bg border border-amber-bar rounded-xl text-[12px] text-amber-badge-text">
-            <div className="font-medium mb-0.5">Basic extraction was used (no Anthropic API key set)</div>
+            <div className="font-medium mb-0.5">Basic extraction was used (no AI provider configured)</div>
             <div className="text-[11px] opacity-90">
               The regex parser may misclassify sections on unusual CV layouts. For accurate extraction,
-              add <code className="font-mono bg-white/40 px-1 rounded">ANTHROPIC_API_KEY</code> to <code className="font-mono bg-white/40 px-1 rounded">.env.local</code> and re-upload.
-              You can also fix any wrong fields below by clicking Edit on each section.
+              add <code className="font-mono bg-white/40 px-1 rounded">ZAI_API_KEY</code> or <code className="font-mono bg-white/40 px-1 rounded">ANTHROPIC_API_KEY</code> to <code className="font-mono bg-white/40 px-1 rounded">.env.local</code> and re-upload.
+              You can also fix any wrong fields below by clicking Edit.
             </div>
           </div>
         )}

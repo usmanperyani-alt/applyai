@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tailorCVForJob } from "@/lib/cv/tailor";
+import { hasAIProvider } from "@/lib/anthropic";
 import { hasSupabase, getServiceClient } from "@/lib/supabase";
 import type { CVContent } from "@/types";
 
@@ -10,9 +11,9 @@ import type { CVContent } from "@/types";
 //   B) Inline mode  — body { cv, job } → tailors and returns without persistence
 //      (used when Supabase isn't configured; CV+job are sent from the client)
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasAIProvider()) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to .env.local to enable AI tailoring." },
+      { error: "No AI provider configured. Set ZAI_API_KEY or ANTHROPIC_API_KEY in .env.local." },
       { status: 503 }
     );
   }

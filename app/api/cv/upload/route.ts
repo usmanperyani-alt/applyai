@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 // pdf-parse is loaded dynamically to avoid its test-file auto-load at import time
 import Anthropic from "@anthropic-ai/sdk";
-import { MODEL_TAILOR } from "@/lib/models";
+import { MODEL_TAILOR, ZAI_MODEL_TAILOR } from "@/lib/models";
+import { hasZai, zaiChat, stripMarkdownFences } from "@/lib/zai";
 
 // POST /api/cv/upload — upload PDF, extract text, analyze with AI
 export async function POST(req: NextRequest) {
@@ -31,18 +32,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No text found in PDF. It may be image-based." }, { status: 422 });
   }
 
-  // 2. Analyze with AI if API key is available
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (apiKey) {
-    try {
-      const client = new Anthropic({ apiKey });
-      const message = await client.messages.create({
-        model: MODEL_TAILOR,
-        max_tokens: 2048,
-        messages: [
-          {
-            role: "user",
-            content: `Analyze this CV/resume text and extract structured information. Return JSON only with no markdown formatting:
+  // 2. Analyze with AI — try z.ai first, then Anthropic, else fall back to regex
+  const prompt = `Analyze this CV/resume text and extract structured information. Return JSON only with no markdown formatting:
 
 {
   "name": "full name",
@@ -71,16 +62,16 @@ export async function POST(req: NextRequest) {
 }
 
 CV Text:
-${extractedText.slice(0, 8000)}`,
-          },
-        ],
-      });
+${extractedText.slice(0, 8000)}`;
 
-      // Safely extract text — handles multi-block responses (extended thinking, tool use)
-      const aiText = message.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
+  // --- z.ai path (preferred) ---
+  if (hasZai()) {
+    try {
+      const res = await zaiChat(
+        [{ role: "user", content: prompt }],
+        { model: ZAI_MODEL_TAILOR, maxTokens: 4096, temperature: 0.2, thinking: false }
+      );
+      const aiText = stripMarkdownFences(res.text);
       try {
         const profile = JSON.parse(aiText);
         return NextResponse.json({
@@ -88,12 +79,44 @@ ${extractedText.slice(0, 8000)}`,
           extractedText: extractedText.slice(0, 3000),
           profile,
           aiAnalyzed: true,
+          provider: "zai",
+        });
+      } catch (parseErr) {
+        console.error("z.ai returned non-JSON:", aiText.slice(0, 200), parseErr);
+      }
+    } catch (err) {
+      console.error("z.ai call failed:", err);
+    }
+  }
+
+  // --- Anthropic fallback ---
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    try {
+      const client = new Anthropic({ apiKey: anthropicKey });
+      const message = await client.messages.create({
+        model: MODEL_TAILOR,
+        max_tokens: 4096,
+        messages: [{ role: "user", content: prompt }],
+      });
+      const aiText = message.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
+      try {
+        const profile = JSON.parse(stripMarkdownFences(aiText));
+        return NextResponse.json({
+          success: true,
+          extractedText: extractedText.slice(0, 3000),
+          profile,
+          aiAnalyzed: true,
+          provider: "anthropic",
         });
       } catch {
-        // AI response wasn't valid JSON, fall back to text-only
+        // fall through to basic
       }
-    } catch {
-      // AI call failed, fall back to text-only extraction
+    } catch (err) {
+      console.error("Anthropic call failed:", err);
     }
   }
 

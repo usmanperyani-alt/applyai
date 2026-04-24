@@ -1,13 +1,14 @@
 /**
- * Centralized Anthropic model identifiers.
- * Update here once when models change rather than hunting through files.
+ * Centralized model identifiers.
+ *
+ * Default provider is Z.ai (Zhipu) via GLM-4.6 — set ZAI_API_KEY in .env.local.
+ * Anthropic IDs kept for the optional fallback path (set ANTHROPIC_API_KEY instead).
  */
 
-// Smart model: structured extraction from PDFs, CV tailoring, hard reasoning.
+// --- Z.ai / GLM ---
+export const ZAI_MODEL_TAILOR = "glm-4.6";  // smart writing, structured extraction
+export const ZAI_MODEL_MATCH = "glm-4.5-air"; // cheaper for high-volume grading
+
+// --- Anthropic Claude (fallback) ---
 export const MODEL_TAILOR = "claude-sonnet-4-6";
-
-// Cheap, fast model: per-job grading, classification, high-volume calls.
 export const MODEL_MATCH = "claude-haiku-4-5-20251001";
-
-// Default Anthropic model for new code that doesn't specify
-export const MODEL_DEFAULT = MODEL_TAILOR;

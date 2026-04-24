@@ -255,6 +255,30 @@ export default function CVPage() {
     setCv({ ...cv, skills: cv.skills.filter((s) => s !== skill) });
   };
 
+  const clearCV = useCallback(() => {
+    if (!confirm("Clear your uploaded CV? This wipes all extracted data and your edits. Cannot be undone.")) {
+      return;
+    }
+    setCv({ summary: "", experience: [], education: [], skills: [], certifications: [] });
+    setProfileName("");
+    setProfileHeadline("");
+    setProfileLocation("");
+    setExtractedText("");
+    setUploadStatus("idle");
+    setAiAnalyzed(false);
+    setEditingSection(null);
+    try {
+      localStorage.removeItem("masterCV");
+      localStorage.removeItem("userProfile");
+      localStorage.removeItem("cvExtractedText");
+      window.dispatchEvent(new Event("profileUpdated"));
+    } catch {
+      // ignore
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    showToast("CV cleared");
+  }, []);
+
   const hasCV = cv.summary || cv.experience.length > 0 || cv.skills.length > 0;
 
   return (
@@ -265,6 +289,12 @@ export default function CVPage() {
         actions={
           hasCV ? (
             <div className="flex gap-2">
+              <button
+                onClick={clearCV}
+                className="py-[7px] px-3.5 rounded-lg text-[13px] cursor-pointer border border-card-border bg-card-bg text-text-dim hover:bg-page-bg hover:text-red-600 hover:border-red-200 transition-colors"
+              >
+                Clear CV
+              </button>
               <button
                 onClick={async () => {
                   try {
@@ -348,7 +378,13 @@ export default function CVPage() {
                 CV uploaded successfully {aiAnalyzed ? "(AI analyzed)" : "(basic extraction)"}
               </div>
               <p className="text-[11px] text-text-secondary">
-                Drop another PDF to replace, or edit your CV below
+                Drop another PDF to replace, edit your CV below, or{" "}
+                <button
+                  onClick={(e) => { e.stopPropagation(); clearCV(); }}
+                  className="text-red-600 hover:underline cursor-pointer"
+                >
+                  clear it
+                </button>
               </p>
             </div>
           ) : (

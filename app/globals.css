@@ -1,26 +1,42 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-brand-50: #E1F5EE;
+  --color-brand-100: #B8E8D8;
+  --color-brand-300: #5DCAA5;
+  --color-brand-500: #1D9E75;
+  --color-brand-700: #0F6E56;
+  --color-brand-900: #085041;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-page-bg: #f4f4f0;
+  --color-card-bg: #ffffff;
+  --color-card-border: #e0e0d8;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #888888;
+  --color-text-muted: #999999;
+  --color-text-dim: #666666;
+
+  --color-amber-badge-bg: #FAEEDA;
+  --color-amber-badge-text: #854F0B;
+  --color-amber-bar: #FAC775;
+  --color-amber-dark: #EF9F27;
+  --color-amber-darkest: #BA7517;
+
+  --color-blue-badge-bg: #E6F1FB;
+  --color-blue-badge-text: #185FA5;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --animate-pulse-dot: pulse-dot 2s infinite;
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-page-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
 }

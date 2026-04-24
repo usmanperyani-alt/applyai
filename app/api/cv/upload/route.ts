@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 // pdf-parse is loaded dynamically to avoid its test-file auto-load at import time
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL_TAILOR } from "@/lib/models";
 
 // POST /api/cv/upload — upload PDF, extract text, analyze with AI
 export async function POST(req: NextRequest) {
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     try {
       const client = new Anthropic({ apiKey });
       const message = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: MODEL_TAILOR,
         max_tokens: 2048,
         messages: [
           {
@@ -75,7 +76,11 @@ ${extractedText.slice(0, 8000)}`,
         ],
       });
 
-      const aiText = message.content[0].type === "text" ? message.content[0].text : "";
+      // Safely extract text — handles multi-block responses (extended thinking, tool use)
+      const aiText = message.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
       try {
         const profile = JSON.parse(aiText);
         return NextResponse.json({

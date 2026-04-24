@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import type { Job } from "@/types";
 
 interface GreenhouseJob {
@@ -14,12 +15,26 @@ interface GreenhouseResponse {
 }
 
 /**
+ * Stable hash for collapsing the same posting across sources.
+ * Lowercased, whitespace-normalized concatenation of company, title, location.
+ */
+export function canonicalHash(company: string, title: string, location: string): string {
+  const normalized = [company, title, location]
+    .map((s) => (s || "").toLowerCase().trim().replace(/\s+/g, " "))
+    .join("||");
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+/**
  * Scrape jobs from a company's Greenhouse board.
  * Greenhouse has a public JSON API — no auth or browser needed.
  */
 export async function scrapeGreenhouse(
   companySlug: string
-): Promise<Omit<Job, "id" | "match_score" | "matched_skills" | "missing_skills">[]> {
+): Promise<(Omit<Job, "id" | "match_score" | "matched_skills" | "missing_skills"> & {
+  description_text: string;
+  canonical_hash: string;
+})[]> {
   const url = `https://boards-api.greenhouse.io/v1/boards/${companySlug}/jobs?content=true`;
 
   const res = await fetch(url);
@@ -28,18 +43,20 @@ export async function scrapeGreenhouse(
   }
 
   const data: GreenhouseResponse = await res.json();
+  const properName = companySlug.charAt(0).toUpperCase() + companySlug.slice(1);
 
   return data.jobs.map((job) => ({
     source: "greenhouse",
     external_id: String(job.id),
     title: job.title,
-    company: companySlug,
+    company: properName,
     location: job.location.name,
     remote: job.location.name.toLowerCase().includes("remote"),
     salary_min: null,
     salary_max: null,
     description: sanitizeHtml(job.content),
     description_text: stripHtml(job.content),
+    canonical_hash: canonicalHash(properName, job.title, job.location.name),
     url: job.absolute_url,
     discovered_at: new Date().toISOString(),
   }));

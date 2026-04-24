@@ -1,15 +1,25 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MatchResult, CVContent } from "@/types";
+import { MODEL_TAILOR, MODEL_MATCH } from "./models";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const MODEL = "claude-sonnet-4-20250514";
+/**
+ * Safely extract text from a Claude message — handles multi-block responses
+ * (e.g. when extended thinking or tool use is enabled).
+ */
+function extractText(message: Anthropic.Message): string {
+  return message.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
 
 /**
  * Score a job against a candidate profile.
- * Returns a 0-100 match score with skill breakdown.
+ * Uses Haiku — high-volume, cheap per-job grading.
  */
 export async function matchJobToProfile(
   profile: {
@@ -33,7 +43,7 @@ export async function matchJobToProfile(
   }
 ): Promise<MatchResult> {
   const message = await client.messages.create({
-    model: MODEL,
+    model: MODEL_MATCH,
     max_tokens: 1024,
     messages: [
       {
@@ -57,8 +67,7 @@ ${JSON.stringify(job, null, 2)}`,
     ],
   });
 
-  const text =
-    message.content[0].type === "text" ? message.content[0].text : "";
+  const text = extractText(message);
 
   try {
     return JSON.parse(text) as MatchResult;
@@ -74,7 +83,7 @@ ${JSON.stringify(job, null, 2)}`,
 
 /**
  * Tailor a CV for a specific job posting.
- * Rewrites bullet points and reorders sections to maximize fit.
+ * Uses Sonnet — needs strong instruction following and writing quality.
  */
 export async function tailorCV(
   masterCV: CVContent,
@@ -85,19 +94,20 @@ export async function tailorCV(
   }
 ): Promise<CVContent> {
   const message = await client.messages.create({
-    model: MODEL,
+    model: MODEL_TAILOR,
     max_tokens: 4096,
     messages: [
       {
         role: "user",
         content: `You are an expert CV writer. Rewrite the candidate's CV to maximize fit for this specific role.
 
-Rules:
-- Reorder and rewrite bullet points to emphasize relevant experience
-- Inject missing keywords naturally where truthful
-- Do not fabricate experience
-- Keep the same JSON structure as the input
-- Return the full tailored CV as JSON only with no markdown formatting
+Strict rules:
+- ONLY use facts from the master CV. Do not fabricate experience, skills, or dates.
+- Reorder and rewrite bullet points to emphasize relevant experience already present.
+- Inject keywords from the job description ONLY where they are truthfully supported by the master CV.
+- If a key requirement from the job is missing from the CV, leave it absent — do NOT invent it.
+- Keep the same JSON structure as the input.
+- Return the full tailored CV as JSON only with no markdown formatting.
 
 Master CV:
 ${JSON.stringify(masterCV, null, 2)}
@@ -108,8 +118,7 @@ ${JSON.stringify(job, null, 2)}`,
     ],
   });
 
-  const text =
-    message.content[0].type === "text" ? message.content[0].text : "";
+  const text = extractText(message);
 
   try {
     return JSON.parse(text) as CVContent;

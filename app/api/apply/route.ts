@@ -1,15 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { hasSupabase, getServiceClient } from "@/lib/supabase";
 
-// POST /api/apply — create an application record
+// POST /api/apply — record an application
+//
+// When Supabase is configured, writes to the applications table.
+// When not, returns success and the client persists to localStorage.
 export async function POST(req: NextRequest) {
-  const { userId, jobId, cvId, autoApplied = false } = await req.json();
+  const body = await req.json();
+  const { userId, jobId, cvId, autoApplied = false, jobSnapshot } = body;
 
-  if (!userId || !jobId) {
-    return NextResponse.json(
-      { error: "userId and jobId are required" },
-      { status: 400 }
-    );
+  if (!jobId) {
+    return NextResponse.json({ error: "jobId is required" }, { status: 400 });
+  }
+
+  // Local-only mode: return success, the client handles persistence
+  if (!hasSupabase()) {
+    return NextResponse.json({
+      application: {
+        id: jobId,
+        job_id: jobId,
+        cv_id: cvId || null,
+        status: "applied",
+        applied_at: new Date().toISOString(),
+        auto_applied: autoApplied,
+        job_snapshot: jobSnapshot || null,
+      },
+      mode: "local",
+    }, { status: 201 });
+  }
+
+  // Supabase mode: requires userId
+  if (!userId) {
+    return NextResponse.json({ error: "userId is required when Supabase is configured" }, { status: 400 });
   }
 
   const supabase = getServiceClient();
@@ -20,7 +42,7 @@ export async function POST(req: NextRequest) {
     .select("id")
     .eq("user_id", userId)
     .eq("job_id", jobId)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     return NextResponse.json(
@@ -45,20 +67,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ application: data }, { status: 201 });
+  return NextResponse.json({ application: data, mode: "supabase" }, { status: 201 });
 }
 
-// GET /api/apply — list user's applications
+// GET /api/apply — list applications
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get("user_id");
+
+  // Local-only mode: client should read from localStorage instead
+  if (!hasSupabase()) {
+    return NextResponse.json({
+      applications: [],
+      mode: "local",
+      message: "Supabase not configured — read from localStorage on the client.",
+    });
+  }
 
   if (!userId) {
     return NextResponse.json({ error: "user_id is required" }, { status: 400 });
   }
 
   const supabase = getServiceClient();
-
   const { data, error } = await supabase
     .from("applications")
     .select("*, jobs(*)")
@@ -69,5 +99,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ applications: data });
+  return NextResponse.json({ applications: data, mode: "supabase" });
 }

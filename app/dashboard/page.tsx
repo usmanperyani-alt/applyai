@@ -8,7 +8,17 @@ import JobRow from "@/components/dashboard/JobRow";
 import PipelinePanel from "@/components/dashboard/PipelinePanel";
 import CVPanel from "@/components/dashboard/CVPanel";
 import Badge from "@/components/ui/Badge";
-import { Job, MetricData, PipelineStage } from "@/types";
+import TailorModal from "@/components/dashboard/TailorModal";
+import ApplyConfirmModal from "@/components/dashboard/ApplyConfirmModal";
+import { Job, MetricData, PipelineStage, CVContent } from "@/types";
+import {
+  getProfile,
+  getAppliedIds,
+  addAppliedId,
+  addLocalApplication,
+  getOrCreateUserId,
+  type StoredProfile,
+} from "@/lib/localStore";
 
 const allSources = [
   { name: "Greenhouse", key: "greenhouse", available: true },
@@ -19,15 +29,6 @@ const allSources = [
 
 const greenHouseCompanies = ["stripe", "figma", "notion", "linear", "vercel"];
 
-interface UserProfile {
-  name: string;
-  headline: string;
-  skills: string[];
-  roles: string[];
-  location: string;
-  years_experience: number;
-}
-
 export default function DashboardPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,38 +37,32 @@ export default function DashboardPage() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(6);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<StoredProfile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [tailorJob, setTailorJob] = useState<Job | null>(null);
+  const [confirmJob, setConfirmJob] = useState<Job | null>(null);
+  const [masterCV, setMasterCV] = useState<CVContent | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Load saved profile from localStorage
+  // Load saved profile, applied IDs, and CV from localStorage
   useEffect(() => {
     const loadProfile = () => {
-      const saved = localStorage.getItem("userProfile");
-      if (saved) {
-        try { setProfile(JSON.parse(saved)); } catch { /* ignore */ }
+      setProfile(getProfile());
+      // CV is stored under a different key (set by CV editor)
+      const cvRaw = localStorage.getItem("masterCV");
+      if (cvRaw) {
+        try { setMasterCV(JSON.parse(cvRaw)); } catch { /* ignore */ }
       }
     };
     loadProfile();
-    // Load applied IDs from localStorage
-    const savedApplied = localStorage.getItem("appliedIds");
-    if (savedApplied) {
-      try { setAppliedIds(new Set(JSON.parse(savedApplied))); } catch { /* ignore */ }
-    }
+    setAppliedIds(getAppliedIds());
     window.addEventListener("profileUpdated", loadProfile);
     return () => window.removeEventListener("profileUpdated", loadProfile);
   }, []);
-
-  // Persist applied IDs to localStorage for cross-page sync
-  useEffect(() => {
-    if (appliedIds.size > 0) {
-      localStorage.setItem("appliedIds", JSON.stringify([...appliedIds]));
-    }
-  }, [appliedIds]);
 
   const fetchJobs = useCallback(async () => {
     if (paused) return;
@@ -75,12 +70,12 @@ export default function DashboardPage() {
     try {
       if (activeSources.includes("greenhouse")) {
         const params = new URLSearchParams();
+        params.append("source", "greenhouse");
         greenHouseCompanies.forEach((c) => params.append("company", c));
         const res = await fetch(`/api/jobs/discover?${params}`);
         const data = await res.json();
         let jobList = data.jobs || [];
 
-        // If user has uploaded a CV, re-score jobs against their profile
         if (profile && profile.skills.length > 0) {
           const matchRes = await fetch("/api/jobs/match-profile", {
             method: "POST",
@@ -119,13 +114,55 @@ export default function DashboardPage() {
     );
   };
 
-  const handleApply = (job: Job) => {
-    setAppliedIds((prev) => {
-      const next = new Set(prev).add(job.id);
-      localStorage.setItem("appliedIds", JSON.stringify([...next]));
-      return next;
+  /**
+   * Record an application — both locally and via API.
+   * If Supabase is configured, the API persists; otherwise the local store
+   * is the source of truth and the API just acks.
+   */
+  const recordApply = useCallback(async (job: Job, autoApplied = false) => {
+    const userId = getOrCreateUserId();
+
+    // 1. Optimistic local write (always)
+    const next = addAppliedId(job.id);
+    setAppliedIds(new Set(next));
+    addLocalApplication({
+      id: job.id,
+      job_id: job.id,
+      cv_id: null,
+      status: "applied",
+      applied_at: new Date().toISOString(),
+      auto_applied: autoApplied,
+      job_snapshot: {
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        match_score: job.match_score,
+        url: job.url,
+      },
     });
-  };
+
+    // 2. Server write (best-effort)
+    try {
+      await fetch("/api/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          jobId: job.id,
+          autoApplied,
+          jobSnapshot: {
+            title: job.title,
+            company: job.company,
+            location: job.location,
+            match_score: job.match_score,
+            url: job.url,
+          },
+        }),
+      });
+    } catch {
+      // Local copy is the truth either way
+    }
+  }, []);
 
   const topJobs = jobs.slice(0, visibleCount);
   const totalJobs = jobs.length;
@@ -135,7 +172,7 @@ export default function DashboardPage() {
     { label: "Jobs found", value: String(totalJobs), sub: profile ? `Matched to ${profile.name || "your profile"}` : "Live from Greenhouse" },
     { label: "Top matches (90%+)", value: String(jobs.filter((j) => j.match_score >= 90).length), sub: "Ready to review" },
     { label: "Remote jobs", value: String(jobs.filter((j) => j.remote).length), sub: `${totalJobs > 0 ? Math.round((jobs.filter((j) => j.remote).length / totalJobs) * 100) : 0}% of total` },
-    { label: "Applied", value: String(appliedCount), sub: appliedCount > 0 ? "Auto-applied" : "None yet" },
+    { label: "Applied", value: String(appliedCount), sub: appliedCount > 0 ? "Tracked locally" : "None yet" },
   ];
 
   const pipeline: PipelineStage[] = [
@@ -179,7 +216,6 @@ export default function DashboardPage() {
         }
       />
 
-      {/* Toast */}
       {toast && (
         <div className="fixed top-4 right-4 z-[100] bg-text-primary text-white px-4 py-2.5 rounded-lg text-[12px] shadow-lg">
           {toast}
@@ -187,7 +223,6 @@ export default function DashboardPage() {
       )}
 
       <div className="p-4 px-5 flex-1">
-        {/* Upload CV prompt */}
         {!profile && !loading && (
           <Link
             href="/cv"
@@ -201,16 +236,13 @@ export default function DashboardPage() {
           </Link>
         )}
 
-        {/* Metrics row */}
         <div className="grid grid-cols-4 gap-2.5 mb-4">
           {metrics.map((m) => (
             <MetricCard key={m.label} {...m} />
           ))}
         </div>
 
-        {/* Two column layout */}
         <div className="grid grid-cols-[1fr_340px] gap-3">
-          {/* Left column — Job matches */}
           <div className="flex flex-col gap-3">
             <div className="bg-card-bg border border-card-border rounded-xl overflow-hidden">
               <div className="px-3.5 py-3 border-b border-card-border flex items-center justify-between">
@@ -222,7 +254,6 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* Agent status */}
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-brand-50 rounded-lg mx-3.5 mt-2.5">
                 {paused ? (
                   <>
@@ -241,7 +272,6 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* Source chips */}
               <div className="flex flex-wrap gap-1.5 px-3.5 py-2 pb-2.5">
                 {allSources.map((s) => {
                   const active = activeSources.includes(s.key);
@@ -262,7 +292,6 @@ export default function DashboardPage() {
                 })}
               </div>
 
-              {/* Job rows */}
               {loading && (
                 <div className="px-3.5 py-8 text-center text-[12px] text-text-secondary">
                   Scanning job boards...
@@ -281,11 +310,10 @@ export default function DashboardPage() {
                   job={job}
                   status={appliedIds.has(job.id) ? "applied" : undefined}
                   onClick={() => setSelectedJob(job)}
-                  onApply={() => handleApply(job)}
+                  onApply={() => setConfirmJob(job)}
                 />
               ))}
 
-              {/* Load more */}
               {!loading && visibleCount < totalJobs && (
                 <button
                   onClick={() => setVisibleCount((v) => v + 10)}
@@ -297,7 +325,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Right column — Pipeline + CV */}
           <div className="flex flex-col gap-3">
             <PipelinePanel stages={pipeline} />
             <CVPanel
@@ -368,8 +395,15 @@ export default function DashboardPage() {
               )}
 
               <button
+                onClick={() => setTailorJob(selectedJob)}
+                className="block w-full text-center py-2 mb-2 rounded-lg text-[12px] border border-card-border bg-card-bg text-text-primary hover:bg-page-bg transition-colors cursor-pointer"
+              >
+                ✨ Tailor my CV for this job
+              </button>
+
+              <button
                 onClick={() => {
-                  handleApply(selectedJob);
+                  setConfirmJob(selectedJob);
                   setSelectedJob(null);
                 }}
                 disabled={appliedIds.has(selectedJob.id)}
@@ -379,11 +413,27 @@ export default function DashboardPage() {
                     : "bg-brand-500 text-white hover:bg-brand-700 border border-brand-500"
                 }`}
               >
-                {appliedIds.has(selectedJob.id) ? "Applied ✓" : "Apply Now"}
+                {appliedIds.has(selectedJob.id) ? "Applied ✓" : "Apply"}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {tailorJob && (
+        <TailorModal
+          job={tailorJob}
+          cv={masterCV}
+          onClose={() => setTailorJob(null)}
+        />
+      )}
+
+      {confirmJob && (
+        <ApplyConfirmModal
+          job={confirmJob}
+          onClose={() => setConfirmJob(null)}
+          onConfirmed={() => recordApply(confirmJob)}
+        />
       )}
     </>
   );

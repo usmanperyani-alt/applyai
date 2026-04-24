@@ -109,6 +109,15 @@ export default function CVPage() {
         salary_estimate_max: profile.salary_estimate_max,
       };
       localStorage.setItem("userProfile", JSON.stringify(savedProfile));
+      // Save full CV content for AI tailoring
+      const masterCV = {
+        summary: profile.summary || "",
+        experience: profile.experience || [],
+        education: profile.education || [],
+        skills: profile.skills || [],
+        certifications: profile.certifications || [],
+      };
+      localStorage.setItem("masterCV", JSON.stringify(masterCV));
       window.dispatchEvent(new Event("profileUpdated"));
 
       setUploadStatus("success");
@@ -201,17 +210,41 @@ export default function CVPage() {
           hasCV ? (
             <div className="flex gap-2">
               <button
-                onClick={() => showToast("PDF export requires Supabase. CV data saved locally.")}
+                onClick={async () => {
+                  try {
+                    showToast("Generating PDF...");
+                    const res = await fetch("/api/cv/export-local", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ content: cv }),
+                    });
+                    if (!res.ok) {
+                      const data = await res.json();
+                      showToast(data.error || "PDF export failed");
+                      return;
+                    }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `cv-${(profileName || "tailored").toLowerCase().replace(/\s+/g, "-")}.pdf`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast("PDF downloaded");
+                  } catch {
+                    showToast("PDF export failed");
+                  }
+                }}
                 className="py-[7px] px-3.5 rounded-lg text-[13px] cursor-pointer border border-card-border bg-card-bg text-text-primary hover:bg-page-bg transition-colors"
               >
                 Export PDF
               </button>
-              <button
-                onClick={() => showToast("AI tailoring requires Anthropic API key in .env.local")}
+              <a
+                href="/dashboard"
                 className="py-[7px] px-3.5 rounded-lg text-[13px] cursor-pointer border border-brand-500 bg-brand-500 text-white hover:bg-brand-700 transition-colors"
               >
-                AI Tailor for Job
-              </button>
+                AI Tailor for Job →
+              </a>
             </div>
           ) : null
         }

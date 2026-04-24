@@ -17,6 +17,15 @@ export function getSupabase() {
   return _browserClient;
 }
 
+/**
+ * True when both a Supabase URL and a service role key are configured.
+ * Use this to gate writes — routes should fall back to local-only behavior
+ * when Supabase isn't set up.
+ */
+export function hasSupabase(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
 // Server client with elevated privileges (used in API routes only)
 export function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

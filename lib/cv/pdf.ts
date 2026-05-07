@@ -1,12 +1,21 @@
 import puppeteer from "puppeteer";
 import type { CVContent } from "@/types";
 
+export interface CVHeader {
+  name?: string;
+  headline?: string;
+  location?: string;
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+}
+
 /**
  * Generate a PDF from structured CV content using Puppeteer.
  * Renders an HTML template in a headless browser and exports to PDF.
  */
-export async function generatePDF(content: CVContent): Promise<Buffer> {
-  const html = renderCVToHTML(content);
+export async function generatePDF(content: CVContent, header: CVHeader = {}): Promise<Buffer> {
+  const html = renderCVToHTML(content, header);
 
   const browser = await puppeteer.launch({ headless: true });
   const page = await browser.newPage();
@@ -24,20 +33,29 @@ export async function generatePDF(content: CVContent): Promise<Buffer> {
   return Buffer.from(pdf);
 }
 
-function renderCVToHTML(cv: CVContent): string {
+function escapeHTML(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderCVToHTML(cv: CVContent, header: CVHeader): string {
   const experienceHTML = cv.experience
     .map(
       (exp) => `
       <div class="experience">
         <div class="exp-header">
           <div>
-            <strong>${exp.title}</strong>
-            <span class="company">${exp.company} · ${exp.location}</span>
+            <strong>${escapeHTML(exp.title || "")}</strong>
+            <span class="company">${escapeHTML(exp.company || "")}${exp.location ? " · " + escapeHTML(exp.location) : ""}</span>
           </div>
-          <span class="dates">${exp.start_date} – ${exp.end_date || "Present"}</span>
+          <span class="dates">${escapeHTML(exp.start_date || "")} – ${escapeHTML(exp.end_date || "Present")}</span>
         </div>
         <ul>
-          ${exp.bullets.map((b) => `<li>${b}</li>`).join("")}
+          ${(exp.bullets || []).filter(Boolean).map((b) => `<li>${escapeHTML(b)}</li>`).join("")}
         </ul>
       </div>`
     )
@@ -47,15 +65,19 @@ function renderCVToHTML(cv: CVContent): string {
     .map(
       (edu) => `
       <div class="education">
-        <strong>${edu.degree}</strong>
-        <span class="school">${edu.school} · ${edu.year}</span>
+        <strong>${escapeHTML(edu.degree || "")}</strong>
+        <span class="school">${escapeHTML(edu.school || "")}${edu.year ? " · " + escapeHTML(edu.year) : ""}</span>
       </div>`
     )
     .join("");
 
   const skillsHTML = cv.skills
-    .map((s) => `<span class="skill">${s}</span>`)
+    .map((s) => `<span class="skill">${escapeHTML(s)}</span>`)
     .join("");
+
+  const contactPieces = [header.email, header.phone, header.location, header.linkedin_url]
+    .filter(Boolean)
+    .map((s) => escapeHTML(String(s)));
 
   return `<!DOCTYPE html>
 <html>
@@ -63,7 +85,10 @@ function renderCVToHTML(cv: CVContent): string {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1a1a; font-size: 11px; line-height: 1.5; }
-  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 2px; }
+  .headline { font-size: 12px; color: #444; margin-bottom: 6px; }
+  .contact { font-size: 10px; color: #666; margin-bottom: 12px; }
+  .contact span + span::before { content: " · "; color: #ccc; }
   h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #0F6E56; border-bottom: 1px solid #e0e0d8; padding-bottom: 4px; margin: 16px 0 8px; }
   .summary { color: #444; margin-bottom: 4px; }
   .experience { margin-bottom: 12px; }
@@ -79,23 +104,21 @@ function renderCVToHTML(cv: CVContent): string {
 </style>
 </head>
 <body>
-  <h1>Candidate CV</h1>
+  <h1>${escapeHTML(header.name || "Candidate CV")}</h1>
+  ${header.headline ? `<div class="headline">${escapeHTML(header.headline)}</div>` : ""}
+  ${contactPieces.length ? `<div class="contact">${contactPieces.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}
 
-  <h2>Summary</h2>
-  <p class="summary">${cv.summary}</p>
+  ${cv.summary ? `<h2>Summary</h2><p class="summary">${escapeHTML(cv.summary)}</p>` : ""}
 
-  <h2>Experience</h2>
-  ${experienceHTML}
+  ${cv.experience.length > 0 ? `<h2>Experience</h2>${experienceHTML}` : ""}
 
-  <h2>Education</h2>
-  ${educationHTML}
+  ${cv.education.length > 0 ? `<h2>Education</h2>${educationHTML}` : ""}
 
-  <h2>Skills</h2>
-  <div class="skills-row">${skillsHTML}</div>
+  ${cv.skills.length > 0 ? `<h2>Skills</h2><div class="skills-row">${skillsHTML}</div>` : ""}
 
   ${cv.certifications.length > 0 ? `
   <h2>Certifications</h2>
-  <ul>${cv.certifications.map((c) => `<li>${c}</li>`).join("")}</ul>
+  <ul>${cv.certifications.map((c) => `<li>${escapeHTML(c)}</li>`).join("")}</ul>
   ` : ""}
 </body>
 </html>`;

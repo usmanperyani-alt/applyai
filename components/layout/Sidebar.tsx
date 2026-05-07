@@ -2,13 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { getBrowserClient } from "@/lib/supabase/browser";
+import UserMenu from "./UserMenu";
+import AgentStatusCard from "@/components/dashboard/AgentStatusCard";
 
+// 5 main-nav items (down from 6 after Phase C). Analytics moved to user menu.
+// Settings + Activity will join via UserMenu in Phases G + I.
+// Job Discovery + Compare + Billing fold into Jobs / Settings in later phases.
 const navSections = [
   {
     label: "Overview",
     items: [
       { name: "Dashboard", href: "/dashboard", icon: DashboardIcon },
-      { name: "Job Discovery", href: "/jobs", icon: SearchIcon },
+      { name: "Jobs", href: "/jobs", icon: SearchIcon },
       { name: "Applications", href: "/applications", icon: ListIcon },
     ],
   },
@@ -17,23 +24,53 @@ const navSections = [
     items: [
       { name: "CV Editor", href: "/cv", icon: DocIcon },
       { name: "Preferences", href: "/preferences", icon: SettingsIcon },
-      { name: "Analytics", href: "/analytics", icon: ChartIcon },
     ],
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [email, setEmail] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
+  const supabaseConfigured =
+    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    const supabase = getBrowserClient();
+    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [supabaseConfigured]);
+
+  // Read pause state from localStorage. Dashboard writes to this same key
+  // on toggle and dispatches "agentPausedChange" so we live-update.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = () => setPaused(localStorage.getItem("agentPaused") === "true");
+    sync();
+    window.addEventListener("agentPausedChange", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("agentPausedChange", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  const initials = email
+    ? email.split("@")[0].slice(0, 2).toUpperCase()
+    : "··";
+
+  // hasUnread = false until Activity ships (Phase G). UserMenu accepts the prop now.
   return (
     <aside className="w-[200px] bg-card-bg border-r border-card-border flex flex-col shrink-0"
       style={{ padding: "16px 0" }}>
-      {/* Logo */}
       <div className="px-4 pb-5 flex items-center gap-2">
         <div className="w-6 h-6 bg-brand-500 rounded-[6px]"></div>
       </div>
 
-      {/* Navigation */}
       {navSections.map((section) => (
         <div key={section.label}>
           <div className="text-[10px] tracking-[0.08em] text-text-muted px-4 pt-3 pb-1 uppercase">
@@ -59,17 +96,14 @@ export default function Sidebar() {
         </div>
       ))}
 
-      {/* Bottom user */}
-      <div className="mt-auto px-4 pt-3 border-t border-card-border">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-xs font-medium text-brand-900">
-            UM
-          </div>
-          <div>
-            <div className="text-xs font-medium">Usman</div>
-            <div className="text-[11px] text-text-secondary">Active agent</div>
-          </div>
-        </div>
+      <div className="mt-auto px-2 pt-3 border-t border-card-border">
+        <AgentStatusCard paused={paused} />
+        <UserMenu
+          email={email}
+          initials={initials}
+          hasUnread={false}
+          supabaseConfigured={supabaseConfigured}
+        />
       </div>
     </aside>
   );
@@ -122,15 +156,6 @@ function SettingsIcon({ active }: { active: boolean }) {
       viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M8 2v4M8 10v4M2 8h4M10 8h4" />
       <circle cx="8" cy="8" r="2" />
-    </svg>
-  );
-}
-
-function ChartIcon({ active }: { active: boolean }) {
-  return (
-    <svg className={`w-4 h-4 shrink-0 ${active ? "opacity-100" : "opacity-70"}`}
-      viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M2 10L6 6L9 9L14 4" />
     </svg>
   );
 }

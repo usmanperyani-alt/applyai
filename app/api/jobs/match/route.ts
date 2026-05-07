@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase/server";
 import { matchJobToProfile } from "@/lib/anthropic";
 
 // POST /api/jobs/match — score a job against a user profile

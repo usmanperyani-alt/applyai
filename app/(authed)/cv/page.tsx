@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import TopBar from "@/components/layout/TopBar";
 import type { CVContent, Experience, Education } from "@/types";
+import { loadMasterCV, saveMasterCV, clearMasterCV } from "@/lib/store/cv";
+import { loadProfile, saveProfile, clearProfile, type StoredProfile } from "@/lib/store/profile";
 
 interface ExtractedProfile {
   name: string;
@@ -48,59 +50,69 @@ export default function CVPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Hydrate from localStorage on mount — restores CV across navigation
+  // Hydrate from store (Supabase when authed, localStorage otherwise) on mount.
   useEffect(() => {
-    try {
-      const cvRaw = localStorage.getItem("masterCV");
-      if (cvRaw) {
-        const saved = JSON.parse(cvRaw);
-        setCv({
-          summary: saved.summary || "",
-          experience: saved.experience || [],
-          education: saved.education || [],
-          skills: saved.skills || [],
-          certifications: saved.certifications || [],
-        });
+    let cancelled = false;
+    (async () => {
+      try {
+        const loaded = await loadMasterCV();
+        if (!cancelled && loaded) setCv(loaded.content);
+
+        const p = await loadProfile();
+        if (!cancelled && p) {
+          setProfileName(p.full_name || "");
+          setProfileHeadline(p.headline || "");
+          setProfileLocation(p.location || "");
+        }
+
+        const textRaw = typeof window !== "undefined" ? localStorage.getItem("cvExtractedText") : null;
+        if (!cancelled && textRaw) setExtractedText(textRaw);
+      } catch (err) {
+        console.error("CV hydrate failed:", err);
+      } finally {
+        if (!cancelled) setHydrated(true);
       }
-      const profileRaw = localStorage.getItem("userProfile");
-      if (profileRaw) {
-        const p = JSON.parse(profileRaw);
-        setProfileName(p.name || "");
-        setProfileHeadline(p.headline || "");
-        setProfileLocation(p.location || "");
-      }
-      const textRaw = localStorage.getItem("cvExtractedText");
-      if (textRaw) setExtractedText(textRaw);
-    } catch {
-      // corrupted storage — ignore
-    }
-    setHydrated(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  // Autosave CV edits back to localStorage
+  // Autosave CV — debounced so Supabase isn't hit on every keystroke.
   useEffect(() => {
-    if (!hydrated) return; // don't write empty CV before hydration completes
-    if (cv.summary || cv.experience.length > 0 || cv.skills.length > 0) {
-      localStorage.setItem("masterCV", JSON.stringify(cv));
-    }
+    if (!hydrated) return;
+    if (!(cv.summary || cv.experience.length > 0 || cv.skills.length > 0)) return;
+    const timeout = setTimeout(() => {
+      saveMasterCV(cv).catch((err) => console.error("autosave CV failed:", err));
+    }, 600);
+    return () => clearTimeout(timeout);
   }, [cv, hydrated]);
 
-  // Autosave profile header (name/headline/location) edits
+  // Autosave profile header (name/headline/location) edits — debounced.
   useEffect(() => {
     if (!hydrated) return;
     if (!profileName && !profileHeadline && !profileLocation) return;
-    try {
-      const existing = localStorage.getItem("userProfile");
-      const profile = existing ? JSON.parse(existing) : {};
-      profile.name = profileName;
-      profile.headline = profileHeadline;
-      profile.location = profileLocation;
-      localStorage.setItem("userProfile", JSON.stringify(profile));
-      window.dispatchEvent(new Event("profileUpdated"));
-    } catch {
-      // ignore
-    }
-  }, [profileName, profileHeadline, profileLocation, hydrated]);
+    const timeout = setTimeout(async () => {
+      try {
+        const existing = (await loadProfile()) || ({} as Partial<StoredProfile>);
+        await saveProfile({
+          full_name: profileName,
+          headline: profileHeadline,
+          location: profileLocation,
+          roles: existing.roles || [],
+          skills: existing.skills || cv.skills,
+          email: existing.email,
+          phone: existing.phone,
+          linkedin_url: existing.linkedin_url,
+          remote_only: existing.remote_only,
+          salary_min: existing.salary_min,
+          salary_max: existing.salary_max,
+          years_experience: existing.years_experience,
+        });
+      } catch (err) {
+        console.error("autosave profile failed:", err);
+      }
+    }, 600);
+    return () => clearTimeout(timeout);
+  }, [profileName, profileHeadline, profileLocation, hydrated, cv.skills]);
 
   const handleUpload = useCallback(async (file: File) => {
     if (file.type !== "application/pdf") {
@@ -153,28 +165,24 @@ export default function CVPage() {
         certifications: profile.certifications || [],
       });
 
-      // Save profile to localStorage for dashboard matching
-      const savedProfile = {
-        name: profile.name,
+      // Persist profile + master CV via the store (Supabase if signed in)
+      await saveProfile({
+        full_name: profile.name,
         headline: profile.headline,
         skills: profile.skills,
         roles: profile.roles,
         location: profile.location,
         years_experience: profile.years_experience,
-        salary_estimate_min: profile.salary_estimate_min,
-        salary_estimate_max: profile.salary_estimate_max,
-      };
-      localStorage.setItem("userProfile", JSON.stringify(savedProfile));
-      // Save full CV content for AI tailoring
-      const masterCV = {
+        salary_min: profile.salary_estimate_min,
+        salary_max: profile.salary_estimate_max,
+      });
+      await saveMasterCV({
         summary: profile.summary || "",
         experience: profile.experience || [],
         education: profile.education || [],
         skills: profile.skills || [],
         certifications: profile.certifications || [],
-      };
-      localStorage.setItem("masterCV", JSON.stringify(masterCV));
-      window.dispatchEvent(new Event("profileUpdated"));
+      });
 
       setUploadStatus("success");
       showToast(
@@ -270,16 +278,11 @@ export default function CVPage() {
   };
 
   const addSkill = () => {
-    if (newSkill.trim() && !cv.skills.includes(newSkill.trim())) {
-      setCv({ ...cv, skills: [...cv.skills, newSkill.trim()] });
+    const trimmed = newSkill.trim();
+    if (trimmed && !cv.skills.includes(trimmed)) {
+      setCv({ ...cv, skills: [...cv.skills, trimmed] });
       setNewSkill("");
-      // Update localStorage profile
-      const saved = localStorage.getItem("userProfile");
-      if (saved) {
-        const profile = JSON.parse(saved);
-        profile.skills = [...cv.skills, newSkill.trim()];
-        localStorage.setItem("userProfile", JSON.stringify(profile));
-      }
+      // Profile.skills is autosaved via the headline useEffect once hydrated.
     }
   };
 
@@ -299,14 +302,13 @@ export default function CVPage() {
     setUploadStatus("idle");
     setAiAnalyzed(false);
     setEditingSection(null);
-    try {
-      localStorage.removeItem("masterCV");
-      localStorage.removeItem("userProfile");
-      localStorage.removeItem("cvExtractedText");
-      window.dispatchEvent(new Event("profileUpdated"));
-    } catch {
-      // ignore
-    }
+    (async () => {
+      try {
+        await Promise.all([clearMasterCV(), clearProfile()]);
+      } catch (err) {
+        console.error("clearCV failed:", err);
+      }
+    })();
     if (fileInputRef.current) fileInputRef.current.value = "";
     showToast("CV cleared");
   }, []);

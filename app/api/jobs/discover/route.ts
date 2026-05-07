@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeGreenhouse, defaultGreenhouseCompanies } from "@/lib/scraper/greenhouse";
 import { scrapeIndeed } from "@/lib/scraper/indeed";
-import { hasSupabase, getServiceClient } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase/server";
+import { hasSupabase } from "@/lib/supabase";
 
 // GET /api/jobs/discover?source=greenhouse&source=indeed&company=stripe&q=designer
 //
@@ -63,17 +64,53 @@ export async function GET(req: NextRequest) {
   if (hasSupabase() && filtered.length > 0) {
     try {
       const supabase = getServiceClient();
-      const { data: upserted, error } = await supabase
-        .from("jobs")
-        .upsert(filtered, { onConflict: "canonical_hash", ignoreDuplicates: false })
-        .select("id, source, external_id, title, company, location, remote, salary_min, salary_max, description, description_text, url, match_score, matched_skills, missing_skills, discovered_at");
+      // Postgres ON CONFLICT can't touch the same row twice in one statement.
+      // We upsert against `(source, external_id)`, so the dedup map MUST also
+      // key by that — otherwise the batch still contains rows that target the
+      // same conflict slot and Postgres rejects.
+      const byKey = new Map<string, (typeof filtered)[number] & { all_sources?: string[]; all_urls?: Record<string, string> }>();
+      for (const job of filtered) {
+        const key = `${job.source}::${job.external_id}`;
+        const existing = byKey.get(key);
+        if (!existing) {
+          byKey.set(key, {
+            ...job,
+            all_sources: [job.source],
+            all_urls: { [job.source]: job.url },
+          });
+        } else {
+          if (!existing.all_sources!.includes(job.source)) existing.all_sources!.push(job.source);
+          existing.all_urls![job.source] = job.url;
+        }
+      }
+      const deduped = Array.from(byKey.values());
 
-      if (error) {
-        console.error("Supabase upsert error:", error.message);
-      } else if (upserted) {
+      // Chunk the upsert. A 1000-row payload with ~20KB descriptions each
+      // is ~20MB, which trips Node fetch timeouts against Supabase REST.
+      // 100 rows per request fits well under the limit.
+      // Use (source, external_id) as the conflict key — it's the stable
+      // per-source identity. canonical_hash is also unique but Postgres can
+      // only resolve ON CONFLICT against one constraint at a time.
+      const CHUNK = 100;
+      const upsertedAll: Record<string, unknown>[] = [];
+      let upsertOk = true;
+      for (let i = 0; i < deduped.length; i += CHUNK) {
+        const slice = deduped.slice(i, i + CHUNK);
+        const { data: upserted, error } = await supabase
+          .from("jobs")
+          .upsert(slice, { onConflict: "source,external_id", ignoreDuplicates: false })
+          .select("id, source, external_id, title, company, location, remote, salary_min, salary_max, description, description_text, url, match_score, matched_skills, missing_skills, discovered_at");
+        if (error) {
+          console.error(`Supabase upsert chunk ${i / CHUNK} error:`, error.message);
+          upsertOk = false;
+          break;
+        }
+        if (upserted) upsertedAll.push(...upserted);
+      }
+      if (upsertOk && upsertedAll.length > 0) {
         return NextResponse.json({
-          jobs: upserted.slice(0, 100),
-          total: upserted.length,
+          jobs: upsertedAll.slice(0, 100),
+          total: upsertedAll.length,
           sources: activeSources,
           persisted: true,
         });

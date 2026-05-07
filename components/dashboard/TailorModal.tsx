@@ -2,25 +2,30 @@
 
 import { useState } from "react";
 import type { Job, CVContent } from "@/types";
+import { loadProfile } from "@/lib/store/profile";
 
 interface TailorModalProps {
   job: Job;
   cv: CVContent | null;
   onClose: () => void;
+  onSaved?: (info: { cvId: string; pdfUrl: string | null; tailoredContent: CVContent }) => void;
 }
 
 interface TailorResponse {
+  cvId: string | null;
+  pdfUrl: string | null;
   tailoredContent: CVContent;
   changes: string[];
+  mode?: "supabase" | "local" | "anonymous";
   error?: string;
 }
 
-export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
+export default function TailorModal({ job, cv, onClose, onSaved }: TailorModalProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TailorResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const runTailor = async () => {
+  const runTailorAndSave = async () => {
     if (!cv) {
       setError("Upload a CV first to tailor it for this job.");
       return;
@@ -28,16 +33,28 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/cv/tailor", {
+      const profile = await loadProfile();
+      const res = await fetch("/api/cv/tailor-and-save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cv,
           job: {
+            id: job.id,
             title: job.title,
             company: job.company,
             description: job.description?.replace(/<[^>]*>/g, " ") || "",
           },
+          header: profile
+            ? {
+                name: profile.full_name,
+                headline: profile.headline,
+                location: profile.location,
+                email: profile.email,
+                phone: profile.phone,
+                linkedin_url: profile.linkedin_url,
+              }
+            : {},
         }),
       });
       const data: TailorResponse = await res.json();
@@ -45,6 +62,9 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
         setError(data.error || "Tailoring failed");
       } else {
         setResult(data);
+        if (data.cvId && onSaved) {
+          onSaved({ cvId: data.cvId, pdfUrl: data.pdfUrl, tailoredContent: data.tailoredContent });
+        }
       }
     } catch {
       setError("Network error. Please try again.");
@@ -78,7 +98,8 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
           {!result && !loading && (
             <div className="text-center py-8">
               <div className="text-[13px] text-text-dim mb-3">
-                Claude will rewrite your CV to emphasize the experience most relevant to this role.
+                AI will rewrite your CV to emphasize the experience most relevant to this role,
+                save the tailored version against this job, and generate a PDF.
               </div>
               <div className="text-[11px] text-text-secondary mb-5 max-w-md mx-auto">
                 Strict rule: only facts from your master CV are used. Nothing is fabricated.
@@ -89,11 +110,11 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
                 </div>
               )}
               <button
-                onClick={runTailor}
+                onClick={runTailorAndSave}
                 disabled={!cv}
                 className="px-4 py-2 rounded-lg text-[13px] font-medium bg-brand-500 text-white hover:bg-brand-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {cv ? "Tailor CV with Claude" : "CV required"}
+                {cv ? "Tailor + save + generate PDF" : "CV required"}
               </button>
             </div>
           )}
@@ -102,7 +123,7 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
               <div className="text-[13px] text-text-dim">
-                Claude is rewriting your CV for {job.company}...
+                Tailoring your CV for {job.company}, saving, and rendering the PDF…
               </div>
             </div>
           )}
@@ -115,12 +136,43 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
 
           {result && (
             <div>
+              {/* Save status banner */}
+              {result.mode === "supabase" && result.cvId ? (
+                <div className="mb-4 p-3 bg-brand-50 border border-brand-300 rounded-lg flex items-center justify-between">
+                  <div>
+                    <div className="text-[12px] font-medium text-brand-700 mb-0.5">
+                      Saved to your library
+                    </div>
+                    <div className="text-[11px] text-brand-900/80">
+                      Tailored CV linked to this job · {result.pdfUrl ? "PDF ready" : "PDF generation failed (CV still saved)"}
+                    </div>
+                  </div>
+                  {result.pdfUrl && (
+                    <a
+                      href={`/api/cv/${result.cvId}/pdf?download=1`}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-brand-500 text-white hover:bg-brand-700 transition-colors"
+                    >
+                      Download PDF
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-4 p-3 bg-amber-badge-bg border border-amber-bar rounded-lg">
+                  <div className="text-[12px] font-medium text-amber-badge-text mb-0.5">
+                    Tailored — not saved
+                  </div>
+                  <div className="text-[11px] text-amber-darkest">
+                    Sign in to save tailored CVs against jobs and download PDFs.
+                  </div>
+                </div>
+              )}
+
               {/* Changes summary */}
-              <div className="mb-4 p-3 bg-brand-50 border border-brand-300 rounded-lg">
-                <div className="text-[12px] font-medium text-brand-700 mb-1.5">
+              <div className="mb-4 p-3 bg-page-bg border border-card-border rounded-lg">
+                <div className="text-[12px] font-medium text-text-primary mb-1.5">
                   Changes made
                 </div>
-                <ul className="text-[11px] text-brand-900 space-y-0.5">
+                <ul className="text-[11px] text-text-dim space-y-0.5">
                   {result.changes.map((c, i) => (
                     <li key={i} className="flex gap-1.5">
                       <span>•</span><span>{c}</span>
@@ -148,25 +200,23 @@ export default function TailorModal({ job, cv, onClose }: TailorModalProps) {
               <div className="flex gap-2 mt-4 pt-4 border-t border-card-border">
                 <button
                   onClick={() => {
-                    if (result.tailoredContent) {
-                      const blob = new Blob([JSON.stringify(result.tailoredContent, null, 2)], { type: "application/json" });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = `cv-tailored-${job.company.toLowerCase().replace(/\s+/g, "-")}.json`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    }
+                    const blob = new Blob([JSON.stringify(result.tailoredContent, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `cv-tailored-${job.company.toLowerCase().replace(/\s+/g, "-")}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
                   }}
                   className="px-3 py-2 rounded-lg text-[12px] border border-card-border bg-card-bg hover:bg-page-bg transition-colors cursor-pointer"
                 >
-                  Download tailored CV (JSON)
+                  Download JSON
                 </button>
                 <button
                   onClick={onClose}
                   className="px-3 py-2 rounded-lg text-[12px] bg-brand-500 text-white hover:bg-brand-700 transition-colors cursor-pointer ml-auto"
                 >
-                  Close
+                  Done
                 </button>
               </div>
             </div>

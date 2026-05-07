@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import TopBar from "@/components/layout/TopBar";
 import Badge from "@/components/ui/Badge";
-import { getLocalApplications, getOrCreateUserId, type LocalApplication } from "@/lib/localStore";
+import { getLocalApplications, type LocalApplication } from "@/lib/localStore";
 
 interface ApiApplication {
   id: string;
@@ -19,6 +20,12 @@ interface ApiApplication {
     match_score: number;
     url: string;
   };
+  cvs?: {
+    id: string;
+    label: string;
+    pdf_url: string | null;
+    is_master: boolean;
+  } | null;
 }
 
 const statusBadge: Record<string, { variant: "green" | "amber" | "blue" | "gray"; label: string }> = {
@@ -41,6 +48,9 @@ interface DisplayApp {
   status: string;
   autoApplied: boolean;
   url: string;
+  cvId: string | null;
+  cvLabel: string | null;
+  pdfUrl: string | null;
 }
 
 export default function ApplicationsPage() {
@@ -49,8 +59,7 @@ export default function ApplicationsPage() {
   const [mode, setMode] = useState<"local" | "supabase">("local");
 
   useEffect(() => {
-    const userId = getOrCreateUserId();
-    fetch(`/api/apply?user_id=${userId}`)
+    fetch("/api/apply")
       .then((r) => r.json())
       .then((data) => {
         if (data.mode === "supabase" && Array.isArray(data.applications)) {
@@ -66,13 +75,14 @@ export default function ApplicationsPage() {
               status: a.status,
               autoApplied: a.auto_applied,
               url: a.jobs?.url || "",
+              cvId: a.cv_id,
+              cvLabel: a.cvs?.label || null,
+              pdfUrl: a.cvs?.pdf_url || null,
             }))
           );
         } else {
-          // Local fallback
           setMode("local");
-          const local = getLocalApplications();
-          setApps(localToDisplay(local));
+          setApps(localToDisplay(getLocalApplications()));
         }
       })
       .catch(() => {
@@ -95,14 +105,13 @@ export default function ApplicationsPage() {
 
       <div className="p-4 px-5 flex-1">
         <div className="bg-card-bg border border-card-border rounded-xl overflow-hidden">
-          {/* Table header */}
-          <div className="grid grid-cols-[1fr_120px_80px_140px_100px_80px] gap-2 px-4 py-2.5 border-b border-card-border text-[11px] text-text-secondary uppercase tracking-wide">
+          <div className="grid grid-cols-[1fr_120px_80px_140px_100px_140px] gap-2 px-4 py-2.5 border-b border-card-border text-[11px] text-text-secondary uppercase tracking-wide">
             <span>Job</span>
             <span>Status</span>
             <span>Match</span>
             <span>Applied</span>
             <span>Type</span>
-            <span></span>
+            <span>CV sent</span>
           </div>
 
           {apps.length === 0 && !loading && (
@@ -116,11 +125,23 @@ export default function ApplicationsPage() {
 
           {apps.map((app) => {
             const badge = statusBadge[app.status] || { variant: "gray" as const, label: app.status };
+            const isClickable = mode === "supabase" && app.id;
+            const RowWrapper = isClickable
+              ? ({ children }: { children: React.ReactNode }) => (
+                  <Link
+                    href={`/applications/${app.id}`}
+                    className="grid grid-cols-[1fr_120px_80px_140px_100px_140px] gap-2 px-4 py-3 border-b border-card-border last:border-b-0 hover:bg-[#f9f9f7] items-center"
+                  >
+                    {children}
+                  </Link>
+                )
+              : ({ children }: { children: React.ReactNode }) => (
+                  <div className="grid grid-cols-[1fr_120px_80px_140px_100px_140px] gap-2 px-4 py-3 border-b border-card-border last:border-b-0 items-center">
+                    {children}
+                  </div>
+                );
             return (
-              <div
-                key={app.id}
-                className="grid grid-cols-[1fr_120px_80px_140px_100px_80px] gap-2 px-4 py-3 border-b border-card-border last:border-b-0 hover:bg-[#f9f9f7] items-center"
-              >
+              <RowWrapper key={app.id}>
                 <div>
                   <div className="text-[13px] font-medium">{app.title}</div>
                   <div className="text-[11px] text-text-secondary">{app.company} · {app.location}</div>
@@ -139,19 +160,27 @@ export default function ApplicationsPage() {
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-page-bg text-text-dim">Manual</span>
                   )}
                 </div>
-                <div className="text-right">
-                  {app.url && (
-                    <a
-                      href={app.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-brand-700 hover:underline"
-                    >
-                      View ↗
-                    </a>
+                <div className="flex items-center gap-2 text-[11px]" onClick={(e) => e.stopPropagation()}>
+                  {app.cvId ? (
+                    <>
+                      <span className="text-text-dim truncate" title={app.cvLabel || ""}>
+                        {app.pdfUrl ? "Tailored" : "No PDF"}
+                      </span>
+                      {app.pdfUrl && (
+                        <a
+                          href={`/api/cv/${app.cvId}/pdf?download=1`}
+                          className="text-brand-700 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          PDF
+                        </a>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-text-secondary">—</span>
                   )}
                 </div>
-              </div>
+              </RowWrapper>
             );
           })}
         </div>
@@ -171,6 +200,9 @@ function localToDisplay(local: LocalApplication[]): DisplayApp[] {
     status: a.status,
     autoApplied: a.auto_applied,
     url: a.job_snapshot.url,
+    cvId: a.cv_id,
+    cvLabel: null,
+    pdfUrl: null,
   }));
 }
 

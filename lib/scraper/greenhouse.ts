@@ -66,8 +66,6 @@ export async function scrapeGreenhouse(
 export const defaultGreenhouseCompanies = [
   "stripe",
   "figma",
-  "notion",
-  "linear",
   "vercel",
   "airbnb",
   "coinbase",

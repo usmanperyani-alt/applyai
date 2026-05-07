@@ -21,9 +21,22 @@ create table if not exists profiles (
   skills text[] default '{}',
   embedding vector(1024),
   gmail_refresh_token text,  -- encrypted Gmail OAuth token (Phase 5)
+  onboarding_step int default 0,         -- 0 = not started, 1-4 = last step completed
+  onboarding_completed_at timestamptz,    -- set when user finishes OR skips past CV step
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Migration: add onboarding columns to existing installations
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'onboarding_step') then
+    alter table profiles add column onboarding_step int default 0;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'onboarding_completed_at') then
+    alter table profiles add column onboarding_completed_at timestamptz;
+  end if;
+end $$;
 
 -- CV versions
 create table if not exists cvs (
@@ -45,7 +58,10 @@ create table if not exists jobs (
   source text not null,
   external_id text,
   -- Stable hash for cross-source dedup (company + title + location, normalized)
-  canonical_hash text unique,
+  -- NOT unique: two distinct postings can produce the same hash (e.g. a role
+  -- re-listed with a new external_id), and Postgres ON CONFLICT can only
+  -- target one constraint at a time. We dedup at query time instead.
+  canonical_hash text,
   title text not null,
   company text not null,
   location text,
@@ -96,6 +112,17 @@ create table if not exists applications (
   status_history jsonb default '[]',     -- [{ status, changed_at, source: 'gmail'|'manual'|'webhook' }]
   updated_at timestamptz default now()
 );
+
+-- Migration: existing installations may have canonical_hash UNIQUE.
+-- Drop the constraint if present; the lookup index below is sufficient.
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'jobs_canonical_hash_key'
+  ) then
+    alter table jobs drop constraint jobs_canonical_hash_key;
+  end if;
+end $$;
 
 -- Indexes
 create index if not exists idx_jobs_source on jobs(source);
@@ -160,6 +187,35 @@ create policy "Users can insert own applications" on applications
 drop policy if exists "Users can update own applications" on applications;
 create policy "Users can update own applications" on applications
   for update using (auth.uid() = user_id);
+
+-- Auto-create a profiles row whenever a new auth.users row is created.
+-- This satisfies the FK from cvs/applications.user_id on first save
+-- without requiring a separate "create profile" call from the client.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, full_name)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'full_name', '')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Allow users to read jobs they've applied to (already covered) and let the
+-- service role bypass; no extra policy needed for the trigger.
 
 -- Semantic match RPC (Phase 2)
 create or replace function match_jobs_by_embedding(

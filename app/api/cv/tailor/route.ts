@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tailorCVForJob } from "@/lib/cv/tailor";
 import { hasAIProvider } from "@/lib/anthropic";
-import { hasSupabase, getServiceClient } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase/server";
+import { hasSupabase } from "@/lib/supabase";
 import type { CVContent } from "@/types";
 
 // POST /api/cv/tailor — AI-tailor a CV for a specific job

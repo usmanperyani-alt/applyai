@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyToGreenhouse, detectATS, type ApplicantInfo } from "@/lib/autoApply/greenhouse";
-import { hasSupabase, getServiceClient } from "@/lib/supabase";
+import { getCurrentUser, getServerClient } from "@/lib/supabase/server";
+import { hasSupabase } from "@/lib/supabase";
 
 // POST /api/auto-apply/submit
-//   body: { jobUrl, applicant: ApplicantInfo, confirmed: true, jobId?, userId?, cvId? }
+//   body: { jobUrl, applicant: ApplicantInfo, confirmed: true, jobId?, cvId? }
 //
 // Actually submits the application. The `confirmed: true` flag is required —
 // keeps a guard against accidental submission via misconfigured callers.
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { jobUrl, applicant, confirmed, jobId, userId, cvId } = body as {
+  const { jobUrl, applicant, confirmed, jobId, cvId } = body as {
     jobUrl?: string;
     applicant?: ApplicantInfo;
     confirmed?: boolean;
     jobId?: string;
-    userId?: string;
     cvId?: string;
   };
 
@@ -35,23 +35,26 @@ export async function POST(req: NextRequest) {
 
   const result = await applyToGreenhouse(jobUrl, applicant, { dryRun: false });
 
-  // Record the application if Supabase is configured
-  if (result.success && hasSupabase() && userId && jobId) {
+  // Record the application if user is authenticated and Supabase is on
+  if (result.success && hasSupabase() && jobId) {
     try {
-      const supabase = getServiceClient();
-      await supabase.from("applications").insert({
-        user_id: userId,
-        job_id: jobId,
-        cv_id: cvId || null,
-        auto_applied: true,
-        status: "applied",
-        submission_log: {
-          submitted_at: new Date().toISOString(),
-          ats,
-          success_indicator: result.message,
-          filled_fields: result.filledFields,
-        },
-      });
+      const user = await getCurrentUser();
+      if (user) {
+        const supabase = await getServerClient();
+        await supabase.from("applications").insert({
+          user_id: user.id,
+          job_id: jobId,
+          cv_id: cvId || null,
+          auto_applied: true,
+          status: "applied",
+          submission_log: {
+            submitted_at: new Date().toISOString(),
+            ats,
+            success_indicator: result.message,
+            filled_fields: result.filledFields,
+          },
+        });
+      }
     } catch (err) {
       console.error("Failed to log application:", err);
     }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase/server";
 
 // GET /api/jobs — list jobs with optional filters
 export async function GET(req: NextRequest) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/cv/pdf";
 
 // GET /api/cv/export?cvId=... — generate and download PDF
